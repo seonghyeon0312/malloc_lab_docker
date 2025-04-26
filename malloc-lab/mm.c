@@ -44,23 +44,24 @@ team_t team = {
 
 #define WSIZE 4 // single word
 #define DSIZE 8 // double word
-#define CHUNKSIZE (1<<12)
+#define CHUNKSIZE (1<<12) // heap extend size
 
 #define MAX(x,y) ((x)> (y) ? (x):(y))
 
-#define PACK(size, alloc) ((size)|(alloc)) // allocate bit change
+#define PACK(size, alloc) ((size)|(alloc)) // header value change
 
+// 읽기 / 쓰기
 #define GET(p) (*(unsigned int *)(p))
 #define PUT(p,val) (*(unsigned int *)(p)=(val))
 
 #define GET_SIZE(p) (GET(p) & ~0x7) // block size
 #define GET_ALLOC(p) (GET(p) & 0x1) // allocated bit state check 1=>allocate, 0=>free
 
-#define HDRP(bp) ((char *)(bp) - WSIZE) // header
-#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp))-DSIZE) // footer
+#define HDRP(bp) ((char *)(bp) - WSIZE) // header 주소 찾기 -> 4바이트 뒤로 이동
+#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp))-DSIZE) // footer 주소 찾기 -> 한블록 건너뛴다음 8바이트 뒤로 이동
 
-#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char*)(bp) - WSIZE)))
-#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char*)(bp) - WSIZE))) // 한 블록 앞으로 Jump
+#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // 이전 블록의 footer에 있는 size를 가지고 뒤로 jump
 
 static void* heap_listp;
 static void * extend_heap(size_t words);
@@ -76,7 +77,7 @@ int mm_init(void)
         return -1;
     }
 
-    PUT(heap_listp, 0);
+    PUT(heap_listp, 0); // 첫 워드는 무조건 0(비워둠)
     PUT(heap_listp + (1*WSIZE), PACK(DSIZE, 1));
     PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));
     PUT(heap_listp + (3*WSIZE), PACK(0, 1));
@@ -95,16 +96,6 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    // int newsize = ALIGN(size + SIZE_T_SIZE);
-    // void *p = mem_sbrk(newsize);
-    // if (p == (void *)-1)
-    //     return NULL;
-    // else
-    // {
-    //     *(size_t *)p = size;
-    //     return (void *)((char *)p + SIZE_T_SIZE);
-    // }
-
     size_t asize;
     size_t extendsize;
     char* bp;
@@ -149,46 +140,47 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    // void *oldptr = ptr;
-    // void *newptr;
-    // size_t copySize;
+    void *oldptr = ptr;
+    void *newptr;
+    size_t copySize;
 
-    // newptr = mm_malloc(size);
-    // if (newptr == NULL)
-    //     return NULL;
-    // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    // if (size < copySize)
-    //     copySize = size;
-    // memcpy(newptr, oldptr, copySize);
-    // mm_free(oldptr);
-    // return newptr;
-
-    if (ptr == NULL) {
-        return mm_malloc(size);  // realloc(NULL, size) == malloc(size)
-    }
-
-    if (size == 0) {
-        mm_free(ptr);            // realloc(ptr, 0) == free(ptr)
+    newptr = mm_malloc(size);
+    if (newptr == NULL)
         return NULL;
-    }
-
-    void* old = ptr;
-    void* new;
-    size_t oldSize = GET_SIZE(HDRP(ptr));
-
-    new = mm_malloc(size);
-    if(new == NULL){
-        return NULL;
-    }
-
-    size_t copySize = oldSize - DSIZE;
-
-    if(size<copySize){
+    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+    if (size < copySize)
         copySize = size;
-    }
-    memcpy(new, old, copySize);
-    mm_free(old);
-    return new;
+    memcpy(newptr, oldptr, copySize);
+    mm_free(oldptr);
+    return newptr;
+    
+
+    // if (ptr == NULL) {
+    //     return mm_malloc(size);  // ptr이 NULL이면 이전에 할당 받은 적이 없다는 뜻이므로 그냥 malloc후 반환
+    // }
+
+    // if (size == 0) {
+    //     mm_free(ptr); // 할당 사이즈를 0으로 바꾼다는 말은 free와 동일하다는 말
+    //     return NULL;
+    // }
+
+    // void* old = ptr;
+    // void* new;
+    // size_t oldSize = GET_SIZE(HDRP(ptr));
+
+    // new = mm_malloc(size);
+    // if(new == NULL){
+    //     return NULL;
+    // }
+
+    // size_t copySize = oldSize - DSIZE;
+
+    // if(size<copySize){
+    //     copySize = size;
+    // }
+    // memcpy(new, old, copySize);
+    // mm_free(old);
+    // return new;
 }
 
 static void* extend_heap(size_t words){
