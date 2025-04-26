@@ -33,7 +33,7 @@ team_t team = {
     /* First member's email address */
     "flaska99@jungle.com",
     /* Second member's full name (leave blank if none) */
-    "",
+    "msms804",
     /* Second member's email address (leave blank if none) */
     ""
 };
@@ -288,6 +288,8 @@ void removeBlock(void *bp){
         NEXT(PREV(bp)) = NEXT(bp);
         PREV(NEXT(bp)) = PREV(bp);
     }
+    place(bp,asize);
+    return bp;
 }
 
 /*
