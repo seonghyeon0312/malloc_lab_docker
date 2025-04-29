@@ -35,15 +35,15 @@ team_t team = {
     "msms804@gmail.com"};
 
 /* single word (4) or double word (8) alignment */
-#define ALIGNMENT 8
+#define ALIGNMENT 16
 
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~0x7)
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-#define WSIZE 4 // single word
-#define DSIZE 8 // double word
+#define WSIZE 8 // single word
+#define DSIZE 16 // double word
 #define CHUNKSIZE (1<<12) // heap extend size
 
 #define MAX(x,y) ((x)> (y) ? (x):(y))
@@ -51,11 +51,13 @@ team_t team = {
 #define PACK(size, alloc) ((size)|(alloc)) // header value change
 
 // 읽기 / 쓰기
-#define GET(p) (*(unsigned int *)(p))
-#define PUT(p,val) (*(unsigned int *)(p)=(val))
+#define GET(p) (*(size_t *)(p))
+#define PUT(p,val) (*(size_t *)(p)=(val))
 
 #define GET_SIZE(p) (GET(p) & ~0x7) // block size
 #define GET_ALLOC(p) (GET(p) & 0x1) // allocated bit state check 1=>allocate, 0=>free
+#define GET_PREV(p) (GET(p+WSIZE))
+#define GET_NEXT(p) (GET((p)))
 
 #define HDRP(bp) ((char *)(bp) - WSIZE) // header 주소 찾기 -> 4바이트 뒤로 이동
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp))-DSIZE) // footer 주소 찾기 -> 한블록 건너뛴다음 8바이트 뒤로 이동
@@ -64,10 +66,21 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // 이전 블록의 footer에 있는 size를 가지고 뒤로 jump
 
 static void* heap_listp;
-static void * extend_heap(size_t words);
+static void* last_alloc = NULL;
+static void* root = NULL;
+static void* extend_heap(size_t words);
 static void* coalesce(void * bp);
+static void* coalesce_explicit(void* bp);
 static void* find_fit(size_t asize);
+static void* next_fit(size_t asize);
+static void* first_fit(size_t asize);
+static void* best_fit(size_t asize);
 static void place(void* bp, size_t asize);
+static void place_explicit(void* bp, size_t asize);
+static void redirection(void* bp);
+static void replace_last_block(void* bp);
+static void init_field(void* bp);
+
 /*
  * mm_init - initialize the malloc package.
  */
@@ -82,6 +95,7 @@ int mm_init(void)
     PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1));
     PUT(heap_listp + (3*WSIZE), PACK(0, 1));
     heap_listp += (2*WSIZE);
+    last_alloc=heap_listp;
 
     if(extend_heap(CHUNKSIZE/WSIZE) == NULL){
         return -1;
@@ -111,7 +125,7 @@ void *mm_malloc(size_t size)
     }
 
     if((bp=find_fit(asize))!= NULL){
-        place(bp,asize);
+        place_explicit(bp,asize);
         return bp;
     }
 
@@ -119,7 +133,7 @@ void *mm_malloc(size_t size)
     if((bp=extend_heap(extendsize/WSIZE)) == NULL){
         return NULL;
     }
-    place(bp,asize);
+    place_explicit(bp,asize);
     return bp;
 }
 
@@ -132,7 +146,9 @@ void mm_free(void *ptr)
 
     PUT(HDRP(ptr),PACK(size,0));
     PUT(FTRP(ptr),PACK(size,0));
-    coalesce(ptr);
+    PUT(ptr, NULL);
+    PUT(ptr+DSIZE, NULL);
+    coalesce_explicit(ptr);
 }
 
 /*
@@ -196,7 +212,7 @@ static void* extend_heap(size_t words){
     PUT(FTRP(bp),PACK(size,0));
     PUT(HDRP(NEXT_BLKP(bp)),PACK(0,1));
     
-    return coalesce(bp);
+    return coalesce_explicit(bp);
 }
 
 static void* coalesce(void * bp){
@@ -206,6 +222,7 @@ static void* coalesce(void * bp){
     size_t size = GET_SIZE(HDRP(bp)); //현재 블록 사이즈
 
     if(prev_alloc && next_alloc){
+        last_alloc=bp;
         return bp;
     }else if(prev_alloc && !next_alloc){
         size+=GET_SIZE(HDRP(NEXT_BLKP(bp)));
@@ -223,20 +240,23 @@ static void* coalesce(void * bp){
         PUT(FTRP(NEXT_BLKP(bp)),PACK(size,0));
         bp=PREV_BLKP(bp);
     }
+    last_alloc = bp;
     return bp;
 }
 
+static void* coalesce_explicit(void* bp){
+    
+}
+
 static void* find_fit(size_t asize){
-    // void* ptr = heap_listp;
+    if(asize <= 4096){
+        return next_fit(asize);
+    }else{
+        return best_fit(asize);
+    }
+}
 
-    // while(GET_SIZE(HDRP(ptr)) != 0 && GET_ALLOC(HDRP(ptr)) != 1){
-    //     if(GET_SIZE(HDRP(ptr))>= asize && GET_ALLOC(HDRP(ptr)) == 0){
-    //         return ptr;
-    //     }
-    //     ptr = HDRP(NEXT_BLKP(ptr));
-    // }
-    // return NULL;
-
+static void* first_fit(size_t asize){
     void* bp;
 
     for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
@@ -245,6 +265,49 @@ static void* find_fit(size_t asize){
         }
     }
     return NULL;
+} 
+
+static void* next_fit(size_t asize){
+    void* bp;
+    for(bp=last_alloc;bp!=NULL;bp=GET_NEXT(bp)){
+        if((asize<=GET_SIZE(HDRP(bp)))){
+            last_alloc = bp;
+            return last_alloc;
+        }
+    }
+    for(bp=heap_listp;bp!=last_alloc;bp=GET_NEXT(bp)){
+        if((asize<=GET_SIZE(HDRP(bp)))){
+            last_alloc = bp;
+            return last_alloc;
+        }
+    }
+    return NULL;
+} 
+
+static void* best_fit(size_t asize){
+    void* bp = NULL;
+    void* bestBp = NULL;
+    size_t bestSize = -1;
+    size_t diffSize = asize;
+    
+    for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
+        if((asize<=GET_SIZE(HDRP(bp)))){
+            if(bestSize == -1){
+                bestSize = GET_SIZE(HDRP(bp));
+                bestBp = bp;
+            }else{
+                diffSize = GET_SIZE(HDRP(bp))-asize;
+                if(diffSize < bestSize){
+                    bestSize= diffSize;
+                    bestBp = bp;
+                    if (diffSize == 0) {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    return bestBp;
 }
 
 static void place(void* bp, size_t asize){
@@ -260,4 +323,43 @@ static void place(void* bp, size_t asize){
         PUT(HDRP(bp),PACK(csize, 1));
         PUT(FTRP(bp),PACK(csize,1));
     }
+}
+
+static void place_explicit(void* bp, size_t asize){
+    size_t csize = GET_SIZE(HDRP(bp));
+
+    if((csize-asize)>=(2*DSIZE)){
+        PUT(HDRP(bp),PACK(asize,1));
+        PUT(FTRP(bp),PACK(asize,1));
+        redirection(bp);
+        
+    }else{
+        PUT(HDRP(bp),PACK(csize,1));
+        PUT(FTRP(bp),PACK(csize,1));
+        replace_last_block(bp);
+        init_field(bp);
+    }
+}
+
+static void redirection(void* bp){
+    void* prev = GET_PREV(bp);
+    void* next = GET_NEXT(bp);
+    PUT(prev, next);
+    PUT((char*)next+DSIZE, prev);
+}
+
+static void replace_last_block(void* bp){
+    if(root == NULL){
+        root= bp;
+    }else{
+        PUT(bp, (root));
+        PUT((char* )bp+DSIZE, NULL);
+        PUT((char* )root+DSIZE, bp);
+        root = bp;
+    }
+}
+
+static void init_field(void* bp){
+    PUT(bp, NULL);
+    PUT((char*)bp+DSIZE,NULL);
 }
