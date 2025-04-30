@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <stdint.h>
 #include <string.h>
 // @@@@@ explicit @@@@@
 #include <sys/mman.h>
@@ -91,9 +92,11 @@ static void *coalesce(void *bp);
 static void *extend_heap(size_t words);
 static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
-
-void removeBlock(void *bp);
-void putFreeBlock(void *bp);
+static void* find_buddy(void* bp);
+static void _merge_buddy(void* bp, void* buddy);
+static void merge_buddy(void*bp);
+static void removeBlock(void *bp);
+static void putFreeBlock(void *bp);
 
 int mm_init(void)
 {   
@@ -127,44 +130,70 @@ int mm_init(void)
 
 
 //연결
-static void *coalesce(void *bp)
-{
-    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp))); 
-    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp))); 
-    size_t size = GET_SIZE(HDRP(bp)); //현재 블록 사이즈 
+// static void *coalesce(void *bp)
+// {
+//     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp))); 
+//     size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp))); 
+//     size_t size = GET_SIZE(HDRP(bp)); //현재 블록 사이즈 
 
-    // case 1 
-    // case 2
-    if(prev_alloc && !next_alloc){
-        removeBlock(NEXT_BLKP(bp)); 
-        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-        PUT(HDRP(bp), PACK(size,0));
-        PUT(FTRP(bp), PACK(size,0));
-    }
-    // case 3
-    else if(!prev_alloc && next_alloc){
-        removeBlock(PREV_BLKP(bp));
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        bp = PREV_BLKP(bp);
-        PUT(HDRP(bp), PACK(size,0));
-        PUT(FTRP(bp), PACK(size,0));
-    }
-    // case 4
-    else if(!prev_alloc && !next_alloc){
-        removeBlock(PREV_BLKP(bp));
-        removeBlock(NEXT_BLKP(bp));
-        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + 
-                GET_SIZE(FTRP(NEXT_BLKP(bp)));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
-        bp = PREV_BLKP(bp); 
-    }
-    putFreeBlock(bp); 
-    return bp;
+//     // case 1 
+//     // case 2
+//     if(prev_alloc && !next_alloc){
+//         removeBlock(NEXT_BLKP(bp)); 
+//         size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+//         PUT(HDRP(bp), PACK(size,0));
+//         PUT(FTRP(bp), PACK(size,0));
+//     }
+//     // case 3
+//     else if(!prev_alloc && next_alloc){
+//         removeBlock(PREV_BLKP(bp));
+//         size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+//         bp = PREV_BLKP(bp);
+//         PUT(HDRP(bp), PACK(size,0));
+//         PUT(FTRP(bp), PACK(size,0));
+//     }
+//     // case 4
+//     else if(!prev_alloc && !next_alloc){
+//         removeBlock(PREV_BLKP(bp));
+//         removeBlock(NEXT_BLKP(bp));
+//         size += GET_SIZE(HDRP(PREV_BLKP(bp))) + 
+//                 GET_SIZE(FTRP(NEXT_BLKP(bp)));
+//         PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
+//         PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
+//         bp = PREV_BLKP(bp); 
+//     }
+//     putFreeBlock(bp); 
+//     return bp;
+// }
+
+static void* coalesce(void* bp){
+
 }
 
+static void merge_buddy(void* bp){
+    void* buddy = find_buddy(bp);
+    size_t size = GET_SIZE(HDRP(bp));
+    size_t buddy_size = GET_SIZE(HDRP(bp));
 
+    if(!GET_ALLOC(HDRP(buddy)) && (size == buddy_size)){
+        void* front = (bp < buddy) ? bp : buddy;
+        void* second  = (bp > buddy) ? bp : buddy;
+        _merge_buddy(front, second);
+        merge_buddy(front);
+    }else{
+        putFreeBlock(bp);
+    }
+}
 
+static void _merge_buddy(void* bp, void* buddy){
+    size_t bp_size = GET_SIZE(HDRP(bp));
+    size_t size = bp_size * 2;
+    removeBlock(bp);
+    removeBlock(buddy);
+    PUT(HDRP(bp),PACK(size, 0));
+    PUT(FTRP(buddy), PACK(size, 0));
+    putFreeBlock(bp);
+}
 
 
 static void *extend_heap(size_t words)
@@ -345,4 +374,9 @@ void *mm_realloc(void *bp, size_t size){
     memcpy(newp, bp, oldsize); 
     mm_free(bp);
     return newp;
+}
+
+static void* find_buddy(void* bp){
+    size_t size = GET_SIZE(HDRP(bp));
+    return (void*)((uintptr_t)bp ^ size);
 }
