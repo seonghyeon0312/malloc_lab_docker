@@ -68,6 +68,9 @@ team_t team = {
 #define HDRP(bp) ((char *)(bp) - WSIZE)
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE) //헤더+데이터+풋터 -(헤더+풋터)
 
+#define LOG(k) ((unsigned int)(log2f((float)k)))
+#define INDEX(base, k) ((base+(WSIZE*(k-1))))
+
 // Given block ptr bp, compute address of next and previous blocks
 // 현재 bp에서 WSIZE를 빼서 header를 가리키게 하고, header에서 get size를 한다.
 // 그럼 현재 블록 크기를 return하고(헤더+데이터+풋터), 그걸 현재 bp에 더하면 next_bp나옴
@@ -81,7 +84,7 @@ team_t team = {
 #define INDEX(base, k) (base + (WSIZE*(k-1)))
 
 static void *heap_listp = NULL; // heap 시작주소 pointer
-static void *free_listp = NULL; // free list head - 가용리스트 시작부분
+static void *base_listp = NULL; // base list head - 가용리스트 시작부분
 // static void *last_bp = NULL; // next_fit을 위한 전역변수
 
 static void *coalesce(void *bp);
@@ -92,27 +95,37 @@ static void place(void *bp, size_t asize);
 void removeBlock(void *bp);
 void putFreeBlock(void *bp);
 
-
 int mm_init(void)
 {   
-    heap_listp = mem_sbrk(3*DSIZE);
+    heap_listp = mem_sbrk(8*DSIZE);
     if (heap_listp == (void*)-1){
         return -1;
     }
-    PUT(heap_listp, 0); //Unused padding
-    PUT(heap_listp + WSIZE, PACK(2*DSIZE,1)); 
-    PUT(heap_listp + 2*WSIZE,NULL); 
-    PUT(heap_listp + 3*WSIZE,NULL); 
-    PUT(heap_listp + 4*WSIZE,PACK(2*DSIZE,1)); 
-    PUT(heap_listp + 5*WSIZE,PACK(0,1)); 
+    PUT(heap_listp, 0); //Unused padding 여기서 패딩은 12byte
+    PUT(heap_listp + 3*WSIZE, PACK(2*DSIZE,1)); // 프롤로그 헤더 | 시작 주소 12
+    PUT(heap_listp + 4*WSIZE,NULL);  // 프롤로그 payload | 시작 주소 16
+    PUT(heap_listp + 5*WSIZE,NULL);  // 프롤로그 payload | 시작 주소 20
+    PUT(heap_listp + 6*WSIZE,PACK(2*DSIZE,1)); // 프롤로그 푸터 | 시작 주소 24
+    PUT(heap_listp + 15*WSIZE,PACK(0,1)); // 에필로그 헤더 | 시작 주소 60
 
-    free_listp = heap_listp + DSIZE;
+    base_listp = heap_listp + 7*WSIZE; // base_listp의 시작주소는 28 ~ 56 까지 | 총 8개의 포인터 | 32 byte
+
+    /* base_listp 에서 8개의 슬롯(4B씩)*/
+    for (int i = 0; i < 8; i++) {
+    PUT(base_listp + i*WSIZE,
+        (unsigned int)(heap_listp + 4*WSIZE));
+    }
+     
     // last_bp = free_listp; // next_fit 을 위한 추가
     // Extend the empty heap with a free block of CHUNKSIZE bytes
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) 
         return -1;
     return 0;
 }
+
+
+
+
 //연결
 static void *coalesce(void *bp)
 {
@@ -149,6 +162,8 @@ static void *coalesce(void *bp)
     putFreeBlock(bp); 
     return bp;
 }
+
+
 
 
 
@@ -204,7 +219,6 @@ static void *extend_heap(size_t words)
 
 //     return NULL; // 못 찾으면 NULL
 // }
-
 static void *find_fit(size_t asize) {
     void *bp;
     void *best_bp = NULL;
@@ -251,9 +265,11 @@ void *mm_malloc(size_t size)
     size_t extendsize;
     void *bp; 
 
+
    
     if(size <= 0) 
         return NULL;
+    
     
    
     if(size <= DSIZE)
@@ -266,6 +282,8 @@ void *mm_malloc(size_t size)
         place(bp,asize); 
         return bp;
     }
+
+  
 
   
     extendsize = MAX(asize,CHUNKSIZE);
@@ -293,7 +311,6 @@ void removeBlock(void *bp){
         PREV(NEXT(bp)) = PREV(bp);
     }
 }
-
 /*
  * mm_free - Freeing a block does nothing.
  */
