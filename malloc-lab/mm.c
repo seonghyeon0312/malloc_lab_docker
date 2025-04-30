@@ -96,20 +96,6 @@ static void place(void *bp, size_t asize);
 void removeBlock(void *bp);
 void putFreeBlock(void *bp);
 
-
-static void *heap_listp = NULL; // heap 시작주소 pointer
-static void *free_listp = NULL; // free list head - 가용리스트 시작부분
-// static void *last_bp = NULL; // next_fit을 위한 전역변수
-
-static void *coalesce(void *bp);
-static void *extend_heap(size_t words);
-static void *find_fit(size_t asize);
-static void place(void *bp, size_t asize);
-
-void removeBlock(void *bp);
-void putFreeBlock(void *bp);
-
-
 int mm_init(void)
 {   
     heap_listp = mem_sbrk(3*DSIZE);
