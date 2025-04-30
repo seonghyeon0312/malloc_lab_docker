@@ -1,7 +1,6 @@
 /*
  * mm-naive.c - The fastest, least memory-efficient malloc package.
  * 
- * 
  * In this naive approach, a block is allocated by simply incrementing
  * the brk pointer.  A block is pure payload. There are no headers or
  * footers.  Blocks are never coalesced or reused. Realloc is
@@ -30,12 +29,9 @@
 team_t team = {
     /* Team name */
     "team 9",
-    "team 9",
     /* First member's full name */
     "La_Ska",
-    "La_Ska",
     /* First member's email address */
-    "flaska99@jungle.com",
     "flaska99@jungle.com",
     /* Second member's full name (leave blank if none) */
     "",
@@ -81,8 +77,8 @@ team_t team = {
 #define PREV(bp) (*(void**)(bp))
 #define NEXT(bp) (*(void**)(bp + WSIZE))
 
-#define LOG(k) ((unsigned int)(log2f((float)k)))
-#define INDEX(base, k) ((base+(WSIZE*(k-1))))
+#define LOG(k) ((unsigned int)log2f((float)k))
+#define INDEX(base, k) (base + (WSIZE*(k-1)))
 
 static void *heap_listp = NULL; // heap 시작주소 pointer
 static void *free_listp = NULL; // free list head - 가용리스트 시작부분
@@ -96,15 +92,13 @@ static void place(void *bp, size_t asize);
 void removeBlock(void *bp);
 void putFreeBlock(void *bp);
 
+
 int mm_init(void)
 {   
     heap_listp = mem_sbrk(3*DSIZE);
     if (heap_listp == (void*)-1){
         return -1;
     }
-    // last_bp = free_listp; // next_fit 을 위한 추가
-    // Extend the empty heap with a free block of CHUNKSIZE bytes
-    if (extend_heap(CHUNKSIZE/WSIZE) == NULL) 
     PUT(heap_listp, 0); //Unused padding
     PUT(heap_listp + WSIZE, PACK(2*DSIZE,1)); 
     PUT(heap_listp + 2*WSIZE,NULL); 
@@ -113,6 +107,8 @@ int mm_init(void)
     PUT(heap_listp + 5*WSIZE,PACK(0,1)); 
 
     free_listp = heap_listp + DSIZE;
+    // last_bp = free_listp; // next_fit 을 위한 추가
+    // Extend the empty heap with a free block of CHUNKSIZE bytes
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) 
         return -1;
     return 0;
@@ -153,6 +149,8 @@ static void *coalesce(void *bp)
     putFreeBlock(bp); 
     return bp;
 }
+
+
 
 static void *extend_heap(size_t words)
 {
@@ -206,6 +204,7 @@ static void *extend_heap(size_t words)
 
 //     return NULL; // 못 찾으면 NULL
 // }
+
 static void *find_fit(size_t asize) {
     void *bp;
     void *best_bp = NULL;
@@ -249,12 +248,13 @@ static void place(void *bp, size_t asize){
 void *mm_malloc(size_t size)
 {
     size_t asize; 
-    size_t asize; 
     size_t extendsize;
     void *bp; 
+
    
     if(size <= 0) 
         return NULL;
+    
    
     if(size <= DSIZE)
         asize = 2*DSIZE; 
@@ -266,6 +266,8 @@ void *mm_malloc(size_t size)
         place(bp,asize); 
         return bp;
     }
+
+  
     extendsize = MAX(asize,CHUNKSIZE);
     if((bp = extend_heap(extendsize/WSIZE)) == NULL)
         return NULL;
@@ -291,15 +293,12 @@ void removeBlock(void *bp){
         PREV(NEXT(bp)) = PREV(bp);
     }
 }
+
 /*
  * mm_free - Freeing a block does nothing.
  */
 void mm_free(void *bp)
 {
-    size_t size = GET_SIZE(HDRP(bp));
-    PUT(HDRP(bp), PACK(size,0));
-    PUT(FTRP(bp), PACK(size,0));
-    coalesce(bp);    
     size_t size = GET_SIZE(HDRP(bp));
     PUT(HDRP(bp), PACK(size,0));
     PUT(FTRP(bp), PACK(size,0));
